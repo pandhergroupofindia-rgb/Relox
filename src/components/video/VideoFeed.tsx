@@ -15,15 +15,17 @@ export function VideoFeed() {
 
     useEffect(() => {
         async function fetchVideos() {
+            setLoading(true);
             try {
                 const response = await databases.listDocuments(
                     APPWRITE_CONFIG.DB_ID,
                     APPWRITE_CONFIG.VIDEOS_COLLECTION,
                     [Query.limit(20), Query.orderDesc('$createdAt')]
                 );
-                setVideos(response.documents);
+                setVideos(response?.documents || []);
             } catch (err) {
                 console.error("Failed to fetch videos", err);
+                setVideos([]);
             } finally {
                 setLoading(false);
             }
@@ -33,16 +35,16 @@ export function VideoFeed() {
 
     if (loading) {
         return (
-            <div className="h-full w-full flex flex-col items-center justify-center bg-black gap-4">
+            <div className="h-full w-full flex flex-col items-center justify-center bg-black gap-4 text-white">
                 <Loader2 className="w-12 h-12 text-primary animate-spin" />
                 <p className="text-zinc-500 font-medium">Brewing fresh content...</p>
             </div>
         );
     }
 
-    if (videos.length === 0) {
+    if (!videos || videos.length === 0) {
         return (
-            <div className="h-full flex flex-col items-center justify-center p-8 text-center bg-black">
+            <div className="h-full flex flex-col items-center justify-center p-8 text-center bg-black text-white">
                 <Film className="w-16 h-16 text-zinc-800 mb-4" />
                 <p className="text-zinc-500">The feed is quiet. Be the first to spark it!</p>
             </div>
@@ -52,7 +54,7 @@ export function VideoFeed() {
     return (
         <div className="video-snap-container h-full w-full bg-black">
             {videos.map((video) => (
-                <div key={video.$id} className="video-snap-item">
+                <div key={video?.$id || Math.random()} className="video-snap-item">
                     <VideoPlayer video={video} currentUserId={user?.$id} />
                 </div>
             ))}
@@ -71,11 +73,15 @@ function VideoPlayer({ video, currentUserId }: { video: any, currentUserId?: str
         const observer = new IntersectionObserver((entries) => {
             entries.forEach(async (entry) => {
                 if (entry.isIntersecting) {
-                    videoRef.current?.play().catch(() => {});
-                    setIsPlaying(true);
+                    try {
+                        await videoRef.current?.play();
+                        setIsPlaying(true);
+                    } catch (e) {
+                        // Autoplay might be blocked by browser
+                    }
                     
-                    // Fake Views Lock Logic
-                    if (!viewLogged && currentUserId) {
+                    // Views Logic
+                    if (!viewLogged && currentUserId && video?.$id) {
                         try {
                             const existingView = await databases.listDocuments(
                                 APPWRITE_CONFIG.DB_ID,
@@ -99,7 +105,7 @@ function VideoPlayer({ video, currentUserId }: { video: any, currentUserId?: str
                                     APPWRITE_CONFIG.DB_ID,
                                     APPWRITE_CONFIG.VIDEOS_COLLECTION,
                                     video.$id,
-                                    { viewsCount: (video.viewsCount || 0) + 1 }
+                                    { viewsCount: (video?.viewsCount || 0) + 1 }
                                 );
                                 setViewLogged(true);
                             }
@@ -121,18 +127,17 @@ function VideoPlayer({ video, currentUserId }: { video: any, currentUserId?: str
     const handleTogglePlay = () => {
         if (videoRef.current) {
             if (isPlaying) videoRef.current.pause();
-            else videoRef.current.play();
+            else videoRef.current.play().catch(() => {});
             setIsPlaying(!isPlaying);
         }
     };
 
-    // YouTube to direct video link is complex without a helper. 
-    // Assuming videoUrl is a direct MP4 or we fallback to an embed/proxied link.
-    // For this prototype, we'll try to use the raw link if it's a direct file, or a placeholder video if it's YT.
-    const isYoutube = video.videoUrl.includes('youtube.com') || video.videoUrl.includes('youtu.be');
+    const isYoutube = video?.videoUrl?.includes('youtube.com') || video?.videoUrl?.includes('youtu.be');
     const displayVideoUrl = isYoutube 
-        ? "https://cdn.pixabay.com/video/2023/11/04/187766-880918076_tiny.mp4" // Fallback to a stock video for YT links in prototype
-        : video.videoUrl;
+        ? "https://cdn.pixabay.com/video/2023/11/04/187766-880918076_tiny.mp4" 
+        : video?.videoUrl;
+
+    if (!displayVideoUrl) return null;
 
     return (
         <div className="relative h-full w-full bg-black overflow-hidden" onClick={handleTogglePlay}>
@@ -152,8 +157,8 @@ function VideoPlayer({ video, currentUserId }: { video: any, currentUserId?: str
             <div className="absolute right-3 bottom-24 flex flex-col items-center gap-6 z-20">
                 <div className="relative mb-2">
                     <Avatar className="w-12 h-12 border-2 border-white glow-magenta">
-                        <AvatarImage src={`https://picsum.photos/seed/${video.username}/100`} />
-                        <AvatarFallback className="bg-primary text-white font-bold">{video.username?.[0]}</AvatarFallback>
+                        <AvatarImage src={`https://picsum.photos/seed/${video?.username || 'user'}/100`} />
+                        <AvatarFallback className="bg-primary text-white font-bold">{video?.username?.[0] || 'U'}</AvatarFallback>
                     </Avatar>
                     <button className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-primary rounded-full p-0.5 border border-white">
                         <UserPlus size={14} className="text-white" />
@@ -167,14 +172,14 @@ function VideoPlayer({ video, currentUserId }: { video: any, currentUserId?: str
                     >
                         <Heart size={38} className={cn(liked ? "fill-primary text-primary" : "text-white")} strokeWidth={2} />
                     </button>
-                    <span className="text-white text-xs font-bold drop-shadow-lg">{video.likesCount + (liked ? 1 : 0)}</span>
+                    <span className="text-white text-xs font-bold drop-shadow-lg">{(video?.likesCount || 0) + (liked ? 1 : 0)}</span>
                 </div>
 
                 <div className="flex flex-col items-center gap-1">
                     <button className="transition-transform active:scale-110">
                         <MessageCircle size={38} className="text-white" strokeWidth={2} />
                     </button>
-                    <span className="text-white text-xs font-bold drop-shadow-lg">{video.commentsCount || 0}</span>
+                    <span className="text-white text-xs font-bold drop-shadow-lg">{video?.commentsCount || 0}</span>
                 </div>
 
                 <div className="flex flex-col items-center gap-1">
@@ -197,14 +202,14 @@ function VideoPlayer({ video, currentUserId }: { video: any, currentUserId?: str
 
             {/* Content Info */}
             <div className="absolute left-4 bottom-4 right-20 z-10 pointer-events-none">
-                <h3 className="text-white font-bold text-lg mb-1 drop-shadow-md">@{video.username || 'relox_creator'}</h3>
+                <h3 className="text-white font-bold text-lg mb-1 drop-shadow-md">@{video?.username || 'relox_creator'}</h3>
                 <p className="text-white/90 text-sm line-clamp-2 mb-3 drop-shadow-sm font-medium">
-                    {video.title} - {video.description}
+                    {video?.title || ''} {video?.description ? `- ${video.description}` : ''}
                 </p>
                 <div className="flex items-center gap-2 text-white/80 bg-black/30 backdrop-blur-sm w-fit px-3 py-1 rounded-full">
                     <Music size={12} className="animate-pulse" />
                     <marquee className="text-[10px] font-semibold w-32 uppercase tracking-wider">
-                        Original Audio - {video.username || 'relox'}
+                        Original Audio - {video?.username || 'relox'}
                     </marquee>
                 </div>
             </div>

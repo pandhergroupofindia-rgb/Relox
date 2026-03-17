@@ -1,8 +1,8 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { account, databases, APPWRITE_CONFIG } from '@/lib/appwrite';
-import { ID, Query, Models } from 'appwrite';
+import { Models } from 'appwrite';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -33,7 +33,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [showOnboarding, setShowOnboarding] = useState(false);
     const [tempAuthUser, setTempAuthUser] = useState<Models.User<any> | null>(null);
 
-    const refreshUser = async () => {
+    const refreshUser = useCallback(async () => {
         try {
             const authUser = await account.get();
             setTempAuthUser(authUser);
@@ -45,20 +45,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     authUser.$id
                 );
                 
-                const profileData = doc.profileData ? JSON.parse(doc.profileData) : {};
+                let profileData = {};
+                try {
+                    profileData = doc?.profileData ? JSON.parse(doc.profileData) : {};
+                } catch (e) {
+                    console.error("Failed to parse profileData", e);
+                }
                 
                 setUser({
                     $id: doc.$id,
-                    username: doc.username,
-                    bio: doc.bio,
-                    email: authUser.email,
+                    username: doc.username || 'relox_user',
+                    bio: doc.bio || '',
+                    email: authUser.email || '',
                     profileData,
                 });
                 setShowOnboarding(false);
             } catch (err: any) {
                 // User document not found, need onboarding
-                if (err.code === 404) {
+                if (err?.code === 404) {
                     setShowOnboarding(true);
+                    setUser(null);
+                } else {
+                    console.error("Failed to fetch user document", err);
+                    setUser(null);
                 }
             }
         } catch (err) {
@@ -67,25 +76,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } finally {
             setLoading(false);
         }
-    };
+    }, []);
 
     useEffect(() => {
         refreshUser();
-    }, []);
+    }, [refreshUser]);
 
     const loginWithGoogle = () => {
-        const origin = window.location.origin;
-        account.createOAuth2Session(
-            'google',
-            `${origin}/`,
-            `${origin}/login-failure`
-        );
+        try {
+            const origin = typeof window !== 'undefined' ? window.location.origin : '';
+            account.createOAuth2Session(
+                'google',
+                `${origin}/`,
+                `${origin}/login-failure`
+            );
+        } catch (e) {
+            console.error("Google login initiation failed", e);
+        }
     };
 
     const logout = async () => {
-        await account.deleteSession('current');
-        setUser(null);
-        setTempAuthUser(null);
+        try {
+            await account.deleteSession('current');
+            setUser(null);
+            setTempAuthUser(null);
+        } catch (e) {
+            console.error("Logout failed", e);
+            setUser(null); // Force clear state anyway
+        }
     };
 
     const handleOnboarding = async (username: string, bio: string) => {
@@ -137,8 +155,11 @@ function OnboardingModal({ isOpen, onSubmit, email }: { isOpen: boolean, onSubmi
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setSubmitting(true);
-        await onSubmit(username, bio);
-        setSubmitting(false);
+        try {
+            await onSubmit(username, bio);
+        } finally {
+            setSubmitting(false);
+        }
     };
 
     return (
